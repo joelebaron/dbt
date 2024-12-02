@@ -26,7 +26,7 @@ func DbRestore(args []string) {
 	backupLocationOveride := flag.String("backupLocationOveride", "", "Override Location for the Backup Files")
 	replaceIfExists := flag.Bool("replaceIfExists", false, "Replace the database if it exists")
 	recover := flag.Bool("recover", false, "recover the database")
-	noExecute := flag.Bool("execute", false, "Execute the restore")
+	noExecute := flag.Bool("noExecute", false, "Execute the restore")
 
 	/*
 		applyDiff := flag.Bool("execute", false, "Apply a Difference backup when full completes")
@@ -259,7 +259,7 @@ func DbRestore(args []string) {
 	fmt.Println(restoreCommand)
 
 	if *noExecute {
-		fmt.Println("Not Exexuting")
+		fmt.Println("Not Executing")
 		return
 	} else {
 		_, err = targetConn.Exec(restoreCommand)

@@ -14,7 +14,8 @@
 			, "-sourceServer=localhost"
 			, "-targetServer=XPS2\\SECONDINSTANCE"
 			, "-sourceDB=joe"
-			//, "-replaceIfExists=true"
+			, "-noExecute"
+			, "-replaceIfExists"
 			//, "-backupLocationOveride=c:\\home"
 		]
 		}
