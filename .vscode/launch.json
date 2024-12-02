@@ -10,7 +10,14 @@
 			"request": "launch",
 			"mode": "auto",
 			"program": "${workspaceFolder}",
-			"args": ["CopyLogins", "localhost", "localhost\\SecondInstance", "j%"]
+			"args": ["DbRestore"
+			, "-sourceServer=localhost"
+			, "-targetServer=XPS2\\SECONDINSTANCE"
+			, "-sourceDB=joe"
+			//, "-replaceIfExists=true"
+			//, "-backupLocationOveride=c:\\home"
+		]
 		}
 	]
 }
+

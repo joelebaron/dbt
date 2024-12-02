@@ -20,11 +20,16 @@ func main () {
 	switch strings.ToLower(os.Args[1]) {
 	case "copylogins":
 			dbActions.CopyLogins(os.Args)
+	case "dbrestore":
+		dbActions.DbRestore(os.Args)
+
+
 
 
 	default:
 		fmt.Println( `Usage:
 	dbt CopyLogins ...
+	dbt DbRestore ...
 	`)
 	}
 
