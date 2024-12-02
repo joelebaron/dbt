@@ -1,0 +1,53 @@
+name: "Release latest dbDeploy executables"
+on:
+  workflow_dispatch: ~
+  push:
+    branches:
+      - "main"
+jobs:
+  build-artifacts:
+    name: "Build executables"
+    runs-on: "ubuntu-latest"
+    steps:
+      - uses: "actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633"  # v4.1.2
+
+      - name: "Set up Go"
+        uses: "actions/setup-go@0c52d547c9bc32b1aa3301fd7a9cb496313a4491"  # v5.0.0
+        with:
+          go-version-file: "DBT/go.mod"
+          cache-dependency-path: "DBT/go.sum"
+          cache: true
+
+      - shell: bash
+        env:
+          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+        run: |
+          cd ./DBT
+          export GOOS="windows"
+          export GOARCH="amd64"
+          go build -o ../exe/dbt.exe ./
+          go build -o ../exe/updateAll.amd64 ./cmd/updateAll
+          go build -o ../exe/exportSeedData.amd64 ./cmd/exportSeedData
+          go build -o ../exe/eph2local.amd64 ./cmd/eph2local
+
+          export GOOS="linux"
+          export GOARCH="arm64"
+          go build -o ../exe/serverSideTableOut.arm64 ./cmd/serverSideDBObjectOut
+          go build -o ../exe/updateAll.arm64 ./cmd/updateAll
+          go build -o ../exe/exportSeedData.arm64 ./cmd/exportSeedData
+          go build -o ../exe/eph2local.arm64 ./cmd/eph2local
+
+          export GOOS="darwin"
+          export GOARCH="arm64"
+          go build -o ../exe/serverSideTableOut.marm64 ./cmd/serverSideDBObjectOut
+          go build -o ../exe/updateAll.marm64 ./cmd/updateAll
+          go build -o ../exe/exportSeedData.marm64 ./cmd/exportSeedData
+          go build -o ../exe/eph2local.marm64 ./cmd/eph2local
+
+
+          gh release upload v1 \
+            ../exe/serverSideTableOut.amd64 ../exe/serverSideTableOut.arm64 ../exe/serverSideTableOut.marm64 \
+            ../exe/updateAll.amd64 ../exe/updateAll.arm64 ../exe/updateAll.marm64\
+            ../exe/exportSeedData.amd64 ../exe/exportSeedData.arm64 ../exe/exportSeedData.marm64 \
+            ../exe/eph2local.amd64 ../exe/eph2local.arm64 ../exe/eph2local.marm64\
+            --clobber
