@@ -60,22 +60,20 @@ func CopyLogins (args []string) {
 			fmt.Println("Unable to retrieve Row")
 			log.ExitHelp("CopyLogins")
 		}
-		command = "IF EXISTS (SELECT name FROM master.sys.server_principals	WHERE name = '" + name + "') DROP LOGIN [" + name + "]; " + command
+		command = "IF EXISTS (SELECT name FROM master.sys.server_principals	WHERE name = '" + name + "') DROP LOGIN [" + name + "]; \n" + command
 		fmt.Println(command)
-		if validateNameandSid(targetConn, name, sid) {
-			fmt.Println("Creating Login ", name, " on server ", targetServer)
-			_, err = targetConn.Query(command)
-			if err != nil {
-				fmt.Println("Error creating login on server ", targetServer)
-				fmt.Println(command)
-				fmt.Println(err.Error())
-				log.ExitHelp("CopyLogins")
-			}
+		fmt.Println("Creating Login ", name, " on server ", targetServer)
+		_, err = targetConn.Query(command)
+		if err != nil {
+			fmt.Println("Error creating login on server ", targetServer)
+			fmt.Println(command)
+			fmt.Println(err.Error())
+			log.ExitHelp("CopyLogins")
 		}
-
 	}
 }
 
+/*
 func validateNameandSid (conn *sql.DB, name string, sid string) bool {
 
 
@@ -113,3 +111,4 @@ func validateNameandSid (conn *sql.DB, name string, sid string) bool {
 
 }
 
+*/
