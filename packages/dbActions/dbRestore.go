@@ -182,6 +182,12 @@ func DbRestore(args []string) {
 	//concatonate the physical_device_names into a string suitable for sql restore command
 	var strFiles string = "\n"
 	for _, mediaFamily := range mediaFamilies {
+		// if mediaFamily.physical_device_name starst with htps://
+		// then use URL instead of DISK
+		if strings.HasPrefix(mediaFamily.physical_device_name, "https://") {
+			mediaFamily.device_type = 9
+		}
+
 		switch mediaFamily.device_type {
 		case 2:
 			strFiles += "\tDISK = '" + mediaFamily.physical_device_name + "',\n"
@@ -287,7 +293,7 @@ func overrideBackupLocation(backupLocationOveride string, mediaFamilies []mediaF
 		originalName := mediaFamilies[i].physical_device_name
 		lastSlashPos := strings.LastIndexAny(originalName, "/\\")
 		if lastSlashPos != -1 {
-			mediaFamilies[i].physical_device_name = backupLocationOveride + originalName[lastSlashPos:]
+			mediaFamilies[i].physical_device_name = backupLocationOveride + originalName[lastSlashPos+1:]
 		} else {
 			mediaFamilies[i].physical_device_name = backupLocationOveride
 		}

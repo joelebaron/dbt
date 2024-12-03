@@ -1,53 +1,64 @@
-name: "Release latest dbDeploy executables"
+name: "Release dbt"
 on:
   workflow_dispatch: ~
   push:
     branches:
       - "main"
+
 jobs:
-  build-artifacts:
-    name: "Build executables"
-    runs-on: "ubuntu-latest"
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+
     steps:
-      - uses: "actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633"  # v4.1.2
+    - name: Checkout Code
+      uses: actions/checkout@v3
 
-      - name: "Set up Go"
-        uses: "actions/setup-go@0c52d547c9bc32b1aa3301fd7a9cb496313a4491"  # v5.0.0
-        with:
-          go-version-file: "DBT/go.mod"
-          cache-dependency-path: "DBT/go.sum"
-          cache: true
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'  # Adjust to your required Go version
 
-      - shell: bash
-        env:
-          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
-        run: |
-          cd ./DBT
-          export GOOS="windows"
-          export GOARCH="amd64"
-          go build -o ../exe/dbt.exe ./
-          go build -o ../exe/updateAll.amd64 ./cmd/updateAll
-          go build -o ../exe/exportSeedData.amd64 ./cmd/exportSeedData
-          go build -o ../exe/eph2local.amd64 ./cmd/eph2local
+    - name: Compile for Linux
+      run: |
+        GOOS=linux GOARCH=amd64 go build -o dbt-amd64
+        echo "Linux binary built."
 
-          export GOOS="linux"
-          export GOARCH="arm64"
-          go build -o ../exe/serverSideTableOut.arm64 ./cmd/serverSideDBObjectOut
-          go build -o ../exe/updateAll.arm64 ./cmd/updateAll
-          go build -o ../exe/exportSeedData.arm64 ./cmd/exportSeedData
-          go build -o ../exe/eph2local.arm64 ./cmd/eph2local
+    - name: Compile for Windows
+      run: |
+        GOOS=windows GOARCH=amd64 go build -o dbt.exe
+        echo "Windows binary built."
 
-          export GOOS="darwin"
-          export GOARCH="arm64"
-          go build -o ../exe/serverSideTableOut.marm64 ./cmd/serverSideDBObjectOut
-          go build -o ../exe/updateAll.marm64 ./cmd/updateAll
-          go build -o ../exe/exportSeedData.marm64 ./cmd/exportSeedData
-          go build -o ../exe/eph2local.marm64 ./cmd/eph2local
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.run_number }}-release
+        release_name: Release ${{ github.run_number }}
+        draft: false
+        prerelease: false
+
+    - name: Upload Linux Binary
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./dbt-amd64
+        asset_name: dbt-amd64
+        asset_content_type: application/octet-stream
+
+    - name: Upload Windows Binary
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./dbt.exe
+        asset_name: dbt.exe
+        asset_content_type: application/octet-stream
 
 
-          gh release upload v1 \
-            ../exe/serverSideTableOut.amd64 ../exe/serverSideTableOut.arm64 ../exe/serverSideTableOut.marm64 \
-            ../exe/updateAll.amd64 ../exe/updateAll.arm64 ../exe/updateAll.marm64\
-            ../exe/exportSeedData.amd64 ../exe/exportSeedData.arm64 ../exe/exportSeedData.marm64 \
-            ../exe/eph2local.amd64 ../exe/eph2local.arm64 ../exe/eph2local.marm64\
-            --clobber
+
