@@ -61,7 +61,7 @@ func CopyLogins (args []string) {
 			log.ExitHelp("CopyLogins")
 		}
 		command = "IF NOT EXISTS (SELECT name FROM master.sys.server_principals	WHERE name = '" + name + "') DROP LOGIN [" + name + "]; " + command
-
+		fmt.Println(command)
 		if validateNameandSid(targetConn, name, sid) {
 			fmt.Println("Creating Login ", name, " on server ", targetServer)
 			_, err = targetConn.Query(command)
