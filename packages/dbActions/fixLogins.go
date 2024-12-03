@@ -4,7 +4,29 @@ import (
 	"database/sql"
 	"fmt"
 	log "joelebaron/dbt/packages/log"
+	db "joelebaron/dbt/packages/db"
 )
+func FixLogins(args []string) {
+	if len(args) != 3 {
+		log.ExitHelp("FixLogins")
+	}
+	targetServer := args[1]
+	targetDB := args[2]
+
+	fmt.Println("Fixing Logins on Server: ", targetServer, " Database: ", targetDB)
+
+	targetConn, err := db.Connect(targetServer)
+	if err != nil {
+		fmt.Println("Error connection to Source Server: ", targetServer)
+		fmt.Println(err.Error())
+		log.ExitHelp("FixLogins")
+	}
+
+	fixLogins(targetConn, targetDB)
+
+}
+
+
 
 func fixLogins(targetConn *sql.DB, dbName string) {
 	fmt.Println("Syncing All database users with Logins")

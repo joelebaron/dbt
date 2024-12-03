@@ -29,6 +29,12 @@ func ExitHelp(module string) {
 				-dataFileLocation (default = "") - The target servers default location will be used
 				-logFileLocation (default = "") - The target servers default location will be used
 				`)
+	case "FixLogins":
+		log.Fatal(`
+		Usage:
+			dbt FixLogins <TargetServer> <TargetDB>
+			`)
+
 	}
 
 }

@@ -24,12 +24,15 @@ func main () {
 			dbActions.CopyLogins(os.Args)
 	case "dbrestore":
 		dbActions.DbRestore(os.Args)
+	case "fixlogins":
+		dbActions.FixLogins(os.Args)
 
 
 	default:
 		fmt.Println( `Usage:
 	dbt CopyLogins ...
 	dbt DbRestore ...
+	dbt FixLogins ...
 	`)
 	}
 
