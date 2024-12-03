@@ -6,7 +6,7 @@ package main
 // go get github.com/microsoft/go-mssqldb/integratedauth/krb5
 // go get github.com/Azure/azure-sdk-for-go/sdk/azidentity
 // "github.com/microsoft/go-mssqldb"
-// 	_ "github.com/microsoft/go-mssqldb"
+//
 //	_ "github.com/microsoft/go-mssqldb/integratedauth/krb5"
 
 
@@ -15,6 +15,7 @@ import (
 	"joelebaron/dbt/packages/dbActions"
 	"os"
 	"strings"
+	_ "github.com/microsoft/go-mssqldb"
 )
 
 func main () {

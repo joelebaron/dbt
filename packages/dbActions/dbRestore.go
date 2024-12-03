@@ -83,16 +83,13 @@ func DbRestore(args []string) {
 	databaseExists := false
 	query := "select name from master.sys.databases where name = '" + *targetDB + "'"
 	targetConn.QueryRow(query).Scan(&result)
-	if result != ""	{
+	if result != "" {
 		databaseExists = true
 	}
 	if databaseExists && !*replaceIfExists {
 		fmt.Println("Database ", *targetDB, " already exists on ", *targetServer)
 		log.ExitHelp("DbRestore")
 	}
-
-
-
 
 	strSQL := `
 		SELECT top 1
@@ -117,12 +114,12 @@ func DbRestore(args []string) {
 		var backup_finish_date *time.Time
 
 		if err := rows.Scan(&media_set_id, &backup_finish_date); err != nil {
-			fmt.Println("No bcakup found on server", sourceServer , "for database", sourceDB)
+			fmt.Println("No bcakup found on server", sourceServer, "for database", sourceDB)
 			log.ExitHelp("DbRestore")
 		}
 
 		if backup_finish_date == nil {
-			fmt.Println("No bcakup found on server", sourceServer , "for database", sourceDB)
+			fmt.Println("No bcakup found on server", sourceServer, "for database", sourceDB)
 			log.ExitHelp("DbRestore")
 		}
 
@@ -243,7 +240,6 @@ func DbRestore(args []string) {
 
 	}
 
-
 	if *recover {
 		withClause += ", RECOVERY\n"
 	} else {
@@ -255,7 +251,7 @@ func DbRestore(args []string) {
 	restoreCommand += withClause
 
 	fmt.Println(restoreCommand)
-	fmt.Println("Restoring database", targetDB, "on server", targetServer)
+	fmt.Println("Restoring database", *targetDB, "on server", *targetServer)
 
 	if *noExecute {
 		fmt.Println("Not Executing")
@@ -268,10 +264,16 @@ func DbRestore(args []string) {
 			log.ExitHelp("DbRestore")
 		}
 		fmt.Println("Restore Complete")
+
+		if *recover {
+			fixLogins(targetConn, *targetDB)
+		}
+
 		return
 	}
 
 }
+
 // create a struct for media family containing physical_device_name, device_type, family_sequence_number
 type mediaFamily struct {
 	physical_device_name   string
