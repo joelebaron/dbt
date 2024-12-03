@@ -1,7 +1,6 @@
 package dbActions
 
 import (
-	"database/sql"
 	"fmt"
 	db "joelebaron/dbt/packages/db"
 	log "joelebaron/dbt/packages/log"
