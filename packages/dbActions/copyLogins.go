@@ -3,15 +3,15 @@ package dbActions
 import (
 	"database/sql"
 	"fmt"
-	db "joelebaron/dbt/packages"
-	"log"
+	db "joelebaron/dbt/packages/db"
+	log "joelebaron/dbt/packages/log"
 
 	_ "github.com/jcmturner/gokrb5/v8/iana/nametype"
 )
 
 func CopyLogins (args []string) {
 	if len(args) != 5 {
-		exitHelp()
+		log.ExitHelp("CopyLogins")
 	}
 	sourceServer := args[2]
 	targetServer := args[3]
@@ -24,13 +24,13 @@ func CopyLogins (args []string) {
 	if err != nil {
 		fmt.Println("Error connection to Source Server: ", sourceServer)
 		fmt.Println(err.Error())
-		exitHelp()
+		log.ExitHelp("CopyLogins")
 	}
 	targetConn, err := db.Connect(targetServer)
 	if err != nil {
 		fmt.Println("Error connection to Targer Server: ", targetServer)
 		fmt.Println(err.Error())
-		exitHelp()
+		log.ExitHelp("CopyLogins")
 	}
 
 	loginQuery := `SELECT name, sid, 'CREATE LOGIN [' + name + ']
@@ -47,7 +47,7 @@ func CopyLogins (args []string) {
 		fmt.Println("Login Query Failed.")
 		fmt.Println(loginQuery)
 		fmt.Println(err.Error())
-		exitHelp()
+		log.ExitHelp("CopyLogins")
 	}
 
 	for rows.Next() {
@@ -58,7 +58,7 @@ func CopyLogins (args []string) {
 
 		if err := rows.Scan(&name, &sid, &command); err != nil {
 			fmt.Println("Unable to retrieve Row")
-			exitHelp()
+			log.ExitHelp("CopyLogins")
 		}
 
 		if validateNameandSid(targetConn, name, sid) {
@@ -68,7 +68,7 @@ func CopyLogins (args []string) {
 				fmt.Println("Error creating login on server ", targetServer)
 				fmt.Println(command)
 				fmt.Println(err.Error())
-				exitHelp()
+				log.ExitHelp("CopyLogins")
 			}
 		}
 
@@ -89,7 +89,7 @@ func validateNameandSid (conn *sql.DB, name string, sid string) bool {
 		fmt.Println("Login Query Failed.")
 		fmt.Println(loginQuery)
 		fmt.Println(err.Error())
-		exitHelp()
+		log.ExitHelp("CopyLogins")
 	}
 
 	// If the count is > 0 the login already exists
@@ -100,26 +100,15 @@ func validateNameandSid (conn *sql.DB, name string, sid string) bool {
 		var targetSid string
 		if err := rows.Scan(&targetName, &targetSid); err != nil {
 			fmt.Println("Unable to retrieve Row")
-			exitHelp()
+			log.ExitHelp("CopyLogins")
 		}
 		if targetSid != sid {
 			fmt.Println("Login ", name, " SID does not match on server")
-			exitHelp()
+			log.ExitHelp("CopyLogins")
 		}
 		return false
 	}
 	return true
-
-}
-
-
-
-func exitHelp () {
-	log.Fatal(`
-	Usage:
-		dbt CopyLogins <SourceServer> <TargetServer> <LoginName>
-		<LoginName> can be a single login or wild card to process multiple logins.
-		`)
 
 }
 

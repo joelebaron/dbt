@@ -4,8 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
-
-	_ "github.com/microsoft/go-mssqldb"
 )
 
 

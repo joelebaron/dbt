@@ -4,15 +4,11 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
-	db "joelebaron/dbt/packages"
+	db "joelebaron/dbt/packages/db"
+	log "joelebaron/dbt/packages/log"
 	"strconv"
 	"strings"
 	"time"
-
-	"log"
-
-	_ "github.com/jcmturner/gokrb5/v8/iana/nametype"
-	//"golang.org/x/text/date"
 )
 
 func DbRestore(args []string) {
@@ -28,10 +24,6 @@ func DbRestore(args []string) {
 	recover := flag.Bool("recover", false, "recover the database")
 	noExecute := flag.Bool("noExecute", false, "Execute the restore")
 
-	/*
-		applyDiff := flag.Bool("execute", false, "Apply a Difference backup when full completes")
-
-	*/
 	dataFileLocation := flag.String("dataFileLocation", "", "Override Location for the Backup Files")
 	logFileLocation := flag.String("logFileLocation", "", "Override Location for the Backup Files")
 
@@ -39,17 +31,17 @@ func DbRestore(args []string) {
 
 	if *sourceServer == "" {
 		fmt.Println("Source Server is required")
-		exitHelp()
+		log.ExitHelp("DbRestore")
 	}
 
 	if *targetServer == "" {
 		fmt.Println("Target Server is required")
-		exitHelp()
+		log.ExitHelp("DbRestore")
 	}
 
 	if *sourceDB == "" {
 		fmt.Println("Source Database is required")
-		exitHelp()
+		log.ExitHelp("DbRestore")
 	}
 
 	if *targetDB == "" {
@@ -60,14 +52,14 @@ func DbRestore(args []string) {
 	if err != nil {
 		fmt.Println("Error connection to Source Server: ", sourceServer)
 		fmt.Println(err.Error())
-		exitHelp()
+		log.ExitHelp("DbRestore")
 	}
 
 	targetConn, err := db.Connect(*targetServer)
 	if err != nil {
 		fmt.Println("Error connection to Source Server: ", sourceServer)
 		fmt.Println(err.Error())
-		exitHelp()
+		log.ExitHelp("DbRestore")
 	}
 
 	if *dataFileLocation == "" {
@@ -96,7 +88,7 @@ func DbRestore(args []string) {
 	}
 	if databaseExists && !*replaceIfExists {
 		fmt.Println("Database ", *targetDB, " already exists on ", *targetServer)
-		exitHelp()
+		log.ExitHelp("DbRestore")
 	}
 
 
@@ -117,7 +109,7 @@ func DbRestore(args []string) {
 		fmt.Println("Query Failed.")
 		fmt.Println(strSQL)
 		fmt.Println(err.Error())
-		exitHelp()
+		log.ExitHelp("DbRestore")
 	}
 
 	var media_set_id int
@@ -125,20 +117,20 @@ func DbRestore(args []string) {
 		var backup_finish_date *time.Time
 
 		if err := rows.Scan(&media_set_id, &backup_finish_date); err != nil {
-			fmt.Println("Unable to retrieve Row")
-			exitHelp()
+			fmt.Println("No bcakup found on server", sourceServer , "for database", sourceDB)
+			log.ExitHelp("DbRestore")
 		}
 
 		if backup_finish_date == nil {
-			fmt.Println("No Full Backup Found for Database ", *sourceDB)
-			exitHelp()
+			fmt.Println("No bcakup found on server", sourceServer , "for database", sourceDB)
+			log.ExitHelp("DbRestore")
 		}
 
 		//Calulate the number of days between now and backupfinishdate
 
 		days := time.Since(*backup_finish_date).Hours() / 24
 
-		fmt.Println("Database ", *targetDB, "Media Set Id: ", media_set_id, ".  Last Full Backup Date: ", *backup_finish_date, " (", int(days), "days ago)")
+		fmt.Println("Database", *targetDB, "Media Set Id:", media_set_id, ".  Last Full Backup Date:", *backup_finish_date, " (", int(days), "days ago)")
 	}
 
 	strSQL = `
@@ -152,7 +144,7 @@ func DbRestore(args []string) {
 		fmt.Println("Query Failed.")
 		fmt.Println(strSQL)
 		fmt.Println(err.Error())
-		exitHelp()
+		log.ExitHelp("DbRestore")
 	}
 
 	//iterate through the rows and add to the mediaFamily struct
@@ -164,7 +156,7 @@ func DbRestore(args []string) {
 
 		if err := rows.Scan(&physical_device_name, &device_type, &family_sequence_number); err != nil {
 			fmt.Println("Unable to retrieve Row")
-			exitHelp()
+			log.ExitHelp("DbRestore")
 		}
 
 		mediaFamilies = append(mediaFamilies, mediaFamily{physical_device_name, device_type, family_sequence_number})
@@ -198,11 +190,10 @@ func DbRestore(args []string) {
 	// remove the trailing comma
 	strFiles = strFiles[:len(strFiles)-2] + "\n"
 
-	var move string
-	_ = move
+	var withClause string
 
 	if databaseExists {
-		move = "WITH REPLACE\n"
+		withClause = "WITH REPLACE\n"
 	} else {
 
 		//RESTORE FILELISTONLY from the strFiles
@@ -212,7 +203,7 @@ func DbRestore(args []string) {
 			fmt.Println("Query Failed.")
 			fmt.Println(strSQL)
 			fmt.Println(err.Error())
-			exitHelp()
+			log.ExitHelp("DbRestore")
 		}
 
 		// RESTORE FILELISTONLY returns different columns depending on the version of SQL Server
@@ -225,12 +216,13 @@ func DbRestore(args []string) {
 			scanArgs[i] = &values[i]
 		}
 
-		move = "WITH \n"
-		// iterate through the rows and output the logical name and physical name
+		withClause = "WITH \n"
+
 		for rows.Next() {
 			err := rows.Scan(scanArgs...)
 			if err != nil {
-				log.Fatal("Error scanning row: ", err)
+				fmt.Println(err.Error())
+				log.ExitHelp("DbRestore")
 			}
 
 			// Process only the first two columns
@@ -240,29 +232,30 @@ func DbRestore(args []string) {
 
 			// If the type is 'D' then add the logical name to the move string
 			if ftype == "D" {
-				move += "MOVE '" + logicalName.(string) + "' TO '" + *dataFileLocation + *targetDB + "." + fileID + ".MDF',\n"
+				withClause += "MOVE '" + logicalName.(string) + "' TO '" + *dataFileLocation + *targetDB + "." + fileID + ".MDF',\n"
 			}
 			if ftype == "L" {
-				move += "MOVE '" + logicalName.(string) + "' TO '" + *logFileLocation + *targetDB + "." + fileID + ".LDF',\n"
+				withClause += "MOVE '" + logicalName.(string) + "' TO '" + *logFileLocation + *targetDB + "." + fileID + ".LDF',\n"
 			}
 		}
 
-		move = move[:len(move)-2] + "\n"
+		withClause = withClause[:len(withClause)-2] + "\n"
 
 	}
 
 
 	if *recover {
-		move += ", RECOVERY\n"
+		withClause += ", RECOVERY\n"
 	} else {
-		move += ", NORECOVERY\n"
+		withClause += ", NORECOVERY\n"
 	}
 
 	restoreCommand := "RESTORE DATABASE " + *targetDB + " FROM"
 	restoreCommand += strFiles
-	restoreCommand += move
+	restoreCommand += withClause
 
 	fmt.Println(restoreCommand)
+	fmt.Println("Restoring database", targetDB, "on server", targetServer)
 
 	if *noExecute {
 		fmt.Println("Not Executing")
@@ -272,12 +265,11 @@ func DbRestore(args []string) {
 		if err != nil {
 			fmt.Println("Restore Failed.")
 			fmt.Println(err.Error())
-			exitHelp()
+			log.ExitHelp("DbRestore")
 		}
 		fmt.Println("Restore Complete")
 		return
 	}
-
 
 }
 // create a struct for media family containing physical_device_name, device_type, family_sequence_number

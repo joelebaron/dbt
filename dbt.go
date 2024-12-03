@@ -5,15 +5,16 @@ package main
 // go get github.com/microsoft/go-mssqldb
 // go get github.com/microsoft/go-mssqldb/integratedauth/krb5
 // go get github.com/Azure/azure-sdk-for-go/sdk/azidentity
+// "github.com/microsoft/go-mssqldb"
+// 	_ "github.com/microsoft/go-mssqldb"
+//	_ "github.com/microsoft/go-mssqldb/integratedauth/krb5"
+
 
 import (
 	"fmt"
 	"joelebaron/dbt/packages/dbActions"
 	"os"
 	"strings"
-
-	_ "github.com/microsoft/go-mssqldb"
-	_ "github.com/microsoft/go-mssqldb/integratedauth/krb5"
 )
 
 func main () {
@@ -24,8 +25,6 @@ func main () {
 		dbActions.DbRestore(os.Args)
 
 
-
-
 	default:
 		fmt.Println( `Usage:
 	dbt CopyLogins ...
@@ -34,3 +33,4 @@ func main () {
 	}
 
 }
+
