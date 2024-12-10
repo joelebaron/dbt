@@ -6,12 +6,11 @@ import (
 	"fmt"
 	db "joelebaron/dbt/packages/db"
 	log "joelebaron/dbt/packages/log"
-	"strconv"
 	"strings"
 	"time"
 )
 
-func DbRestore(args []string) {
+func ApplyDiff(args []string) {
 	// process flag command line arguments
 	sourceServer := flag.String("sourceServer", "", "Source Server Name")
 	targetServer := flag.String("targetServer", "", "Target Server Name")
@@ -20,28 +19,24 @@ func DbRestore(args []string) {
 	targetDB := flag.String("targetDB", "", "Target Database Name")
 
 	backupLocationOveride := flag.String("backupLocationOveride", "", "Override Location for the Backup Files")
-	replaceIfExists := flag.Bool("replaceIfExists", false, "Replace the database if it exists")
 	recover := flag.Bool("recover", false, "recover the database")
 	noExecute := flag.Bool("noExecute", false, "Execute the restore")
-
-	dataFileLocation := flag.String("dataFileLocation", "", "Override Location for the Backup Files")
-	logFileLocation := flag.String("logFileLocation", "", "Override Location for the Backup Files")
 
 	flag.CommandLine.Parse(args[2:])
 
 	if *sourceServer == "" {
 		fmt.Println("Source Server is required")
-		log.ExitHelp("DbRestore")
+		log.ExitHelp("ApplyDiff")
 	}
 
 	if *targetServer == "" {
 		fmt.Println("Target Server is required")
-		log.ExitHelp("DbRestore")
+		log.ExitHelp("ApplyDiff")
 	}
 
 	if *sourceDB == "" {
 		fmt.Println("Source Database is required")
-		log.ExitHelp("DbRestore")
+		log.ExitHelp("ApplyDiff")
 	}
 
 	if *targetDB == "" {
@@ -52,51 +47,36 @@ func DbRestore(args []string) {
 	if err != nil {
 		fmt.Println("Error connection to Source Server: ", sourceServer)
 		fmt.Println(err.Error())
-		log.ExitHelp("DbRestore")
+		log.ExitHelp("ApplyDiff")
 	}
 
 	targetConn, err := db.Connect(*targetServer)
 	if err != nil {
 		fmt.Println("Error connection to Source Server: ", sourceServer)
 		fmt.Println(err.Error())
-		log.ExitHelp("DbRestore")
+		log.ExitHelp("ApplyDiff")
 	}
 
-	if *dataFileLocation == "" {
-		var result string
-		query := "select CAST(SERVERPROPERTY ('InstanceDefaultDataPath') as varchar(max))"
-		targetConn.QueryRow(query).Scan(&result)
-		dataFileLocation = &result
 
-	}
 
-	if *logFileLocation == "" {
-		var result string
-		query := "select CAST(SERVERPROPERTY ('InstanceDefaultLogPath') as varchar(max))"
-		targetConn.QueryRow(query).Scan(&result)
-		logFileLocation = &result
-
-	}
 
 	//Check if target database exists
 	var result string
 	databaseExists := false
 	query := "select name from master.sys.databases where name = '" + *targetDB + "'"
 	targetConn.QueryRow(query).Scan(&result)
-	if result != "" {
-		databaseExists = true
+	if result == "" {
+		fmt.Println("Database does not exist on target server")
+		log.ExitHelp("ApplyDiff")
 	}
-	if databaseExists && !*replaceIfExists {
-		fmt.Println("Database ", *targetDB, " already exists on ", *targetServer)
-		log.ExitHelp("DbRestore")
-	}
+
 
 	strSQL := `
 		SELECT top 1
 			media_set_id,
 			backup_finish_date
 		FROM msdb.dbo.backupset
-		WHERE Type = 'D' --Full
+		WHERE Type = 'I' --Full
 		and database_name = @dbname
 		order by backup_finish_date desc
 		`
@@ -106,7 +86,7 @@ func DbRestore(args []string) {
 		fmt.Println("Query Failed.")
 		fmt.Println(strSQL)
 		fmt.Println(err.Error())
-		log.ExitHelp("DbRestore")
+		log.ExitHelp("ApplyDiff")
 	}
 
 	var media_set_id int
@@ -114,13 +94,13 @@ func DbRestore(args []string) {
 		var backup_finish_date *time.Time
 
 		if err := rows.Scan(&media_set_id, &backup_finish_date); err != nil {
-			fmt.Println("No backup found on server", sourceServer, "for database", sourceDB)
-			log.ExitHelp("DbRestore")
+			fmt.Println("No differential backup found on server", sourceServer, "for database", sourceDB)
+			log.ExitHelp("ApplyDiff")
 		}
 
 		if backup_finish_date == nil {
-			fmt.Println("No bcakup found on server", sourceServer, "for database", sourceDB)
-			log.ExitHelp("DbRestore")
+			fmt.Println("No bakup found on server", sourceServer, "for database", sourceDB)
+			log.ExitHelp("ApplyDiff")
 		}
 
 		//Calulate the number of days between now and backupfinishdate
@@ -141,7 +121,7 @@ func DbRestore(args []string) {
 		fmt.Println("Query Failed.")
 		fmt.Println(strSQL)
 		fmt.Println(err.Error())
-		log.ExitHelp("DbRestore")
+		log.ExitHelp("ApplyDiff")
 	}
 
 	//iterate through the rows and add to the mediaFamily struct
@@ -153,7 +133,7 @@ func DbRestore(args []string) {
 
 		if err := rows.Scan(&physical_device_name, &device_type, &family_sequence_number); err != nil {
 			fmt.Println("Unable to retrieve Row")
-			log.ExitHelp("DbRestore")
+			log.ExitHelp("ApplyDiff")
 		}
 
 		mediaFamilies = append(mediaFamilies, mediaFamily{physical_device_name, device_type, family_sequence_number})
@@ -191,18 +171,6 @@ func DbRestore(args []string) {
 
 	if databaseExists {
 		withClause = "WITH REPLACE\n"
-		strSQL = "ALTER DATABASE [" + *targetDB +"] SET Single_USER with rollback immediate;"
-
-		_, err = targetConn.Exec(strSQL)
-		if err != nil {
-			fmt.Println("Query Failed.")
-			fmt.Println(strSQL)
-			fmt.Println(err.Error())
-			log.ExitHelp("DbRestore")
-		}
-		
-
-
 	} else {
 
 		//RESTORE FILELISTONLY from the strFiles
@@ -212,7 +180,7 @@ func DbRestore(args []string) {
 			fmt.Println("Query Failed.")
 			fmt.Println(strSQL)
 			fmt.Println(err.Error())
-			log.ExitHelp("DbRestore")
+			log.ExitHelp("ApplyDiff")
 		}
 
 		// RESTORE FILELISTONLY returns different columns depending on the version of SQL Server
@@ -226,27 +194,6 @@ func DbRestore(args []string) {
 		}
 
 		withClause = "WITH \n"
-
-		for rows.Next() {
-			err := rows.Scan(scanArgs...)
-			if err != nil {
-				fmt.Println(err.Error())
-				log.ExitHelp("DbRestore")
-			}
-
-			// Process only the first two columns
-			logicalName := values[0]
-			ftype := values[2]
-			fileID := strconv.FormatInt(values[6].(int64), 10)
-
-			// If the type is 'D' then add the logical name to the move string
-			if ftype == "D" {
-				withClause += "MOVE '" + logicalName.(string) + "' TO '" + *dataFileLocation + *targetDB + "." + fileID + ".MDF',\n"
-			}
-			if ftype == "L" {
-				withClause += "MOVE '" + logicalName.(string) + "' TO '" + *logFileLocation + *targetDB + "." + fileID + ".LDF',\n"
-			}
-		}
 
 		withClause = withClause[:len(withClause)-2] + "\n"
 
@@ -273,7 +220,7 @@ func DbRestore(args []string) {
 		if err != nil {
 			fmt.Println("Restore Failed.")
 			fmt.Println(err.Error())
-			log.ExitHelp("DbRestore")
+			log.ExitHelp("ApplyDiff")
 		}
 		fmt.Println("Restore Complete")
 
@@ -287,23 +234,3 @@ func DbRestore(args []string) {
 }
 
 // create a struct for media family containing physical_device_name, device_type, family_sequence_number
-type mediaFamily struct {
-	physical_device_name   string
-	device_type            int
-	family_sequence_number int
-}
-
-func overrideBackupLocation(backupLocationOveride string, mediaFamilies []mediaFamily) []mediaFamily {
-	//iterate through the mediaFamilies and replace the physical_device_name with the backupLocationOveride
-	for i := range mediaFamilies {
-		originalName := mediaFamilies[i].physical_device_name
-		lastSlashPos := strings.LastIndexAny(originalName, "/\\")
-		if lastSlashPos != -1 {
-			mediaFamilies[i].physical_device_name = backupLocationOveride + originalName[lastSlashPos+1:]
-		} else {
-			mediaFamilies[i].physical_device_name = backupLocationOveride
-		}
-
-	}
-	return mediaFamilies
-}
