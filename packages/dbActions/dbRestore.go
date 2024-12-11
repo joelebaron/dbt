@@ -6,29 +6,16 @@ import (
 	"fmt"
 	db "joelebaron/dbt/packages/db"
 	log "joelebaron/dbt/packages/log"
+	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+	"syscall"
 )
 
-func DbRestore(args []string) {
-	// process flag command line arguments
-	sourceServer := flag.String("sourceServer", "", "Source Server Name")
-	targetServer := flag.String("targetServer", "", "Target Server Name")
-
-	sourceDB := flag.String("sourceDB", "", "Source Database Name")
-	targetDB := flag.String("targetDB", "", "Target Database Name")
-
-	backupLocationOveride := flag.String("backupLocationOveride", "", "Override Location for the Backup Files")
-	replaceIfExists := flag.Bool("replaceIfExists", false, "Replace the database if it exists")
-	recover := flag.Bool("recover", false, "recover the database")
-	noExecute := flag.Bool("noExecute", false, "Execute the restore")
-
-	dataFileLocation := flag.String("dataFileLocation", "", "Override Location for the Backup Files")
-	logFileLocation := flag.String("logFileLocation", "", "Override Location for the Backup Files")
-
-	flag.CommandLine.Parse(args[2:])
-
+func processVars(sourceServer *string, targetServer *string, sourceDB *string, targetDB *string) {
 	if *sourceServer == "" {
 		fmt.Println("Source Server is required")
 		log.ExitHelp("DbRestore")
@@ -48,16 +35,41 @@ func DbRestore(args []string) {
 		*targetDB = *sourceDB
 	}
 
+}
+
+
+
+func DbRestore(args []string) {
+	// process flag command line arguments
+	sourceServer := flag.String("sourceServer", "", "Source Server Name")
+	targetServer := flag.String("targetServer", "", "Target Server Name")
+
+	sourceDB := flag.String("sourceDB", "", "Source Database Name")
+	targetDB := flag.String("targetDB", "", "Target Database Name")
+
+	backupLocationOveride := flag.String("backupLocationOveride", "", "Override Location for the Backup Files")
+	replaceIfExists := flag.Bool("replaceIfExists", false, "Replace the database if it exists")
+	recover := flag.Bool("recover", false, "recover the database")
+	noExecute := flag.Bool("noExecute", false, "Execute the restore")
+
+	dataFileLocation := flag.String("dataFileLocation", "", "Location to put the data files.  Defaults to the default data location")
+	logFileLocation := flag.String("logFileLocation", "", "Location to put the log files.  Defaults to the default log location")
+
+	flag.CommandLine.Parse(args[2:])
+
+	processVars(sourceServer, targetServer, sourceDB, targetDB)
+
+
 	sourceConn, err := db.Connect(*sourceServer)
 	if err != nil {
-		fmt.Println("Error connection to Source Server: ", sourceServer)
+		fmt.Println("Error connection to Source Server: ", *sourceServer)
 		fmt.Println(err.Error())
 		log.ExitHelp("DbRestore")
 	}
 
 	targetConn, err := db.Connect(*targetServer)
 	if err != nil {
-		fmt.Println("Error connection to Source Server: ", sourceServer)
+		fmt.Println("Error connection to Source Server: ", *targetServer)
 		fmt.Println(err.Error())
 		log.ExitHelp("DbRestore")
 	}
@@ -144,6 +156,7 @@ func DbRestore(args []string) {
 		log.ExitHelp("DbRestore")
 	}
 
+
 	//iterate through the rows and add to the mediaFamily struct
 	var mediaFamilies []mediaFamily
 	for rows.Next() {
@@ -200,7 +213,7 @@ func DbRestore(args []string) {
 			fmt.Println(err.Error())
 			log.ExitHelp("DbRestore")
 		}
-		
+
 
 
 	} else {
@@ -269,13 +282,34 @@ func DbRestore(args []string) {
 		fmt.Println("Not Executing")
 		return
 	} else {
-		_, err = targetConn.Exec(restoreCommand)
-		if err != nil {
-			fmt.Println("Restore Failed.")
-			fmt.Println(err.Error())
-			log.ExitHelp("DbRestore")
-		}
-		fmt.Println("Restore Complete")
+		// create a channel to signal the restore process is complete
+		done := make(chan bool)
+		var wg sync.WaitGroup
+
+		// Thread one will do the restore
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := targetConn.Exec(restoreCommand)
+
+			if err != nil {
+				fmt.Println("Restore Failed.")
+				fmt.Println(err.Error())
+				log.ExitHelp("DbRestore")
+			}
+			fmt.Println("\nRestore Complete")
+			done <- true
+		}()
+
+		// Second thread will moniotor restore progress and output to the console
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			pollRestoreProgress(targetConn, done, targetDB)
+		}()
+
+		wg.Wait()
+
 
 		if *recover {
 			fixLogins(targetConn, *targetDB)
@@ -285,6 +319,55 @@ func DbRestore(args []string) {
 	}
 
 }
+
+func pollRestoreProgress(targetConn *sql.DB, done chan bool, targetDB *string) {
+	// Handle termination signals for clean exit
+	quit := make(chan os.Signal, 1)
+
+
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	for {
+		select {
+		case <-done:
+			// Restore completed
+			return
+		case <-quit:
+			// Exit on signal
+			fmt.Println("\nPolling stopped.")
+			os.Exit(0)
+		default:
+			// Query for restore progress
+			progress, estimated_completion_time, err := getRestoreProgress(targetConn, targetDB)
+			if err != nil {
+				fmt.Printf("Error querying restore progress: %v", err)
+			} else {
+				fmt.Printf("\rRestore Progress: %.2f%% - Estimated Completion: %s", progress, estimated_completion_time.Format(time.RFC1123))
+			}
+
+			// Wait for 5 seconds before the next poll
+			time.Sleep(5 * time.Second)
+		}
+	}
+}
+
+func getRestoreProgress(targetConn *sql.DB,  targetDB *string) (float32, time.Time, error) {
+	var progress float32
+	var estimated_completion_time time.Time
+	query := `SELECT percent_complete,
+		dateadd(second,estimated_completion_time/1000, getdate()) as estimated_completion_time
+	 	FROM sys.dm_exec_requests r
+		CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) a
+		WHERE command = 'RESTORE DATABASE'
+		and a.text like 'RESTORE DATABASE ` + *targetDB + `%'`
+	err := targetConn.QueryRow(query).Scan(&progress, &estimated_completion_time)
+	if err == sql.ErrNoRows {
+		// No restore in progress
+		return 0, estimated_completion_time, nil
+	}
+	return progress, estimated_completion_time, err
+}
+
 
 // create a struct for media family containing physical_device_name, device_type, family_sequence_number
 type mediaFamily struct {
