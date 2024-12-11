@@ -19,6 +19,14 @@ import (
 )
 
 func main () {
+	if os.Args == nil || len(os.Args) < 2 {
+		fmt.Println( `Usage:
+	dbt CopyLogins ...
+	dbt DbRestore ...
+	dbt FixLogins ...
+	`)
+	}
+
 	switch strings.ToLower(os.Args[1]) {
 	case "copylogins":
 			dbActions.CopyLogins(os.Args)
