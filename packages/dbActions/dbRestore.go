@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 	"syscall"
+	"time"
 )
 
 func processVars(sourceServer *string, targetServer *string, sourceDB *string, targetDB *string) {
@@ -37,8 +37,6 @@ func processVars(sourceServer *string, targetServer *string, sourceDB *string, t
 
 }
 
-
-
 func DbRestore(args []string) {
 	// process flag command line arguments
 	sourceServer := flag.String("sourceServer", "", "Source Server Name")
@@ -59,7 +57,6 @@ func DbRestore(args []string) {
 
 	processVars(sourceServer, targetServer, sourceDB, targetDB)
 
-
 	sourceConn, err := db.Connect(*sourceServer)
 	if err != nil {
 		fmt.Println("Error connection to Source Server: ", *sourceServer)
@@ -69,7 +66,7 @@ func DbRestore(args []string) {
 
 	targetConn, err := db.Connect(*targetServer)
 	if err != nil {
-		fmt.Println("Error connection to Source Server: ", *targetServer)
+		fmt.Println("Error connection to Target Server: ", *targetServer)
 		fmt.Println(err.Error())
 		log.ExitHelp("DbRestore")
 	}
@@ -91,11 +88,13 @@ func DbRestore(args []string) {
 	}
 
 	//Check if target database exists
-	var result string
+	var name string
+	var state_desc string
 	databaseExists := false
-	query := "select name from master.sys.databases where name = '" + *targetDB + "'"
-	targetConn.QueryRow(query).Scan(&result)
-	if result != "" {
+
+	query := "select name, state_desc from master.sys.databases where name = '" + *targetDB + "'"
+	targetConn.QueryRow(query).Scan(&name, &state_desc)
+	if name != "" {
 		databaseExists = true
 	}
 	if databaseExists && !*replaceIfExists {
@@ -122,24 +121,20 @@ func DbRestore(args []string) {
 	}
 
 	var media_set_id int
+	rowsFound := false
 	for rows.Next() {
+		rowsFound = true
 		var backup_finish_date *time.Time
-
-		if err := rows.Scan(&media_set_id, &backup_finish_date); err != nil {
-			fmt.Println("No backup found on server", sourceServer, "for database", sourceDB)
-			log.ExitHelp("DbRestore")
-		}
-
-		if backup_finish_date == nil {
-			fmt.Println("No bcakup found on server", sourceServer, "for database", sourceDB)
-			log.ExitHelp("DbRestore")
-		}
+		rows.Scan(&media_set_id, &backup_finish_date)
 
 		//Calulate the number of days between now and backupfinishdate
-
 		days := time.Since(*backup_finish_date).Hours() / 24
-
 		fmt.Println("Database", *targetDB, "Media Set Id:", media_set_id, ".  Last Full Backup Date:", *backup_finish_date, " (", int(days), "days ago)")
+	}
+	//if no rows returned then exit
+	if !rowsFound {
+		fmt.Println("No backups found for database", *sourceDB)
+		log.ExitHelp("DbRestore")
 	}
 
 	strSQL = `
@@ -156,10 +151,11 @@ func DbRestore(args []string) {
 		log.ExitHelp("DbRestore")
 	}
 
-
 	//iterate through the rows and add to the mediaFamily struct
 	var mediaFamilies []mediaFamily
+	rowsFound = false
 	for rows.Next() {
+		rowsFound = true
 		var physical_device_name string
 		var device_type int
 		var family_sequence_number int
@@ -171,6 +167,13 @@ func DbRestore(args []string) {
 
 		mediaFamilies = append(mediaFamilies, mediaFamily{physical_device_name, device_type, family_sequence_number})
 	}
+	//if no rows returned then exit
+	if !rowsFound {
+		fmt.Println("No backup media found for media_set_id", media_set_id)
+		log.ExitHelp("DbRestore")
+	}
+
+
 
 	if *backupLocationOveride != "" {
 		mediaFamilies = overrideBackupLocation(*backupLocationOveride, mediaFamilies)
@@ -204,17 +207,18 @@ func DbRestore(args []string) {
 
 	if databaseExists {
 		withClause = "WITH REPLACE\n"
-		strSQL = "ALTER DATABASE [" + *targetDB +"] SET Single_USER with rollback immediate;"
-
-		_, err = targetConn.Exec(strSQL)
-		if err != nil {
-			fmt.Println("Query Failed.")
-			fmt.Println(strSQL)
-			fmt.Println(err.Error())
-			log.ExitHelp("DbRestore")
+		if state_desc != "RESTORING" {
+		if !*noExecute {
+			fmt.Println("Setting database" , *targetDB, "to single user mode")
+			_, err = targetConn.Exec(setSingleUserQuery(*targetDB))
+			if err != nil {
+				fmt.Println("Query Failed.")
+				fmt.Println(strSQL)
+				fmt.Println(err.Error())
+				log.ExitHelp("DbRestore")
+			}
 		}
-
-
+	}
 
 	} else {
 
@@ -310,7 +314,6 @@ func DbRestore(args []string) {
 
 		wg.Wait()
 
-
 		if *recover {
 			fixLogins(targetConn, *targetDB)
 		}
@@ -323,7 +326,6 @@ func DbRestore(args []string) {
 func pollRestoreProgress(targetConn *sql.DB, done chan bool, targetDB *string) {
 	// Handle termination signals for clean exit
 	quit := make(chan os.Signal, 1)
-
 
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
@@ -342,16 +344,16 @@ func pollRestoreProgress(targetConn *sql.DB, done chan bool, targetDB *string) {
 			if err != nil {
 				fmt.Printf("Error querying restore progress: %v", err)
 			} else {
-				fmt.Printf("\rRestore Progress: %.2f%% - Estimated Completion: %s", progress, estimated_completion_time.Format(time.RFC1123))
+				fmt.Printf("\rRestore Progress: %.2f%% - Estimated Completion: %s", progress, estimated_completion_time.Format(time.Kitchen))
 			}
 
 			// Wait for 5 seconds before the next poll
-			time.Sleep(5 * time.Second)
+			time.Sleep(1 * time.Second)
 		}
 	}
 }
 
-func getRestoreProgress(targetConn *sql.DB,  targetDB *string) (float32, time.Time, error) {
+func getRestoreProgress(targetConn *sql.DB, targetDB *string) (float32, time.Time, error) {
 	var progress float32
 	var estimated_completion_time time.Time
 	query := `SELECT percent_complete,
@@ -367,7 +369,6 @@ func getRestoreProgress(targetConn *sql.DB,  targetDB *string) (float32, time.Ti
 	}
 	return progress, estimated_completion_time, err
 }
-
 
 // create a struct for media family containing physical_device_name, device_type, family_sequence_number
 type mediaFamily struct {
@@ -389,4 +390,38 @@ func overrideBackupLocation(backupLocationOveride string, mediaFamilies []mediaF
 
 	}
 	return mediaFamilies
+}
+
+
+func setSingleUserQuery(targetDB string) string {
+	return `
+	Declare @i int = 0
+	While @i <= 3 BEGIN
+		SET @i = @i + 1
+		BEGIN TRY
+			DECLARE @kill varchar(max) = '';
+			SELECT @kill = @kill + 'kill ' + CONVERT(varchar(5), session_id) + ';'
+			FROM sys.dm_exec_sessions
+			WHERE database_id = db_id('` + targetDB + `');
+			EXEC(@kill);
+
+			SELECT 	@kill = @kill + 'kill ' + CONVERT(varchar(5), request_session_id) + ';'
+			FROM sys.dm_tran_locks l
+			WHERE
+				DB_Name(l.resource_database_id) = '` + targetDB + `'
+				AND l.resource_type = 'DATABASE'
+				AND l.request_session_id <> @@SPID;
+			EXEC(@kill);
+
+			ALTER DATABASE [` + targetDB + `] SET SINGLE_USER with rollback immediate;
+		END TRY
+		BEGIN CATCH
+			IF @i = 3 Begin
+				declare @msg nvarchar(max) = ERROR_MESSAGE()
+				RAISERROR(@msg, 16, 1)
+				BREAK
+			END
+		END CATCH
+	END -- WHILE
+	`
 }
